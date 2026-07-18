@@ -136,6 +136,17 @@ def login_required(f):
         if not session.get('logged_in'):
             flash('Please login first', 'error')
             return redirect(url_for('login'))
+        # Tenant binding: a session authenticated against one tenant must
+        # not be usable against another, whether the mismatch comes from a
+        # different Host header or the ?tenant= dev override resolving
+        # g.tenant to something else mid-session. Compared, not trusted —
+        # g.tenant is per-request and can change; the session's bound
+        # tenant_id can't.
+        if session.get('tenant_id') != g.tenant['id']:
+            session.pop('logged_in', None)
+            session.pop('tenant_id', None)
+            flash('Please login first', 'error')
+            return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -339,24 +350,39 @@ def view_vehicle(id):
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    if session.get('logged_in'):
+    if session.get('logged_in') and session.get('tenant_id') == g.tenant['id']:
         return redirect(url_for('index'))
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
+        # tenant_users_store is checked first — it's scoped to g.tenant['id'],
+        # so a username only ever matches within the tenant this request
+        # resolved to. The env-var fallback below is the pre-migration path,
+        # kept live only until the new table is confirmed working in prod;
+        # it does not get a tenant-scoped identity, only the original
+        # single-tenant behavior.
+        user = tenant_users_store.verify_login(g.tenant['id'], username, password)
+        if user:
+            session['logged_in'] = True
+            session['tenant_id'] = g.tenant['id']
+            flash('Logged in successfully!', 'success')
+            return redirect(url_for('index'))
+
         admin_password = os.getenv('ADMIN_PASSWORD', 'cherrywood123')
         if username == 'admin' and password == admin_password:
             session['logged_in'] = True
+            session['tenant_id'] = g.tenant['id']
             flash('Logged in successfully!', 'success')
             return redirect(url_for('index'))
-        else:
-            flash('Invalid username or password', 'error')
-            return render_template('login.html')
+
+        flash('Invalid username or password', 'error')
+        return render_template('login.html')
     return render_template('login.html')
 
 @app.route('/logout')
 def logout():
     session.pop('logged_in', None)
+    session.pop('tenant_id', None)
     flash('Logged out successfully', 'success')
     return redirect(url_for('index'))
 
