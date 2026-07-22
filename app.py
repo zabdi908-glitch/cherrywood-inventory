@@ -1228,6 +1228,75 @@ def parts_add():
         result = parts_agent.add_part(data, tenant_id=g.tenant['id'])
         if result['success']:
             flash('✅ Part added successfully!', 'success')
+
+            # Save any photos attached on the Add Part page. This mirrors the
+            # already-correct, validated logic in upload_part_photo() and
+            # add_vehicle(): reuse the new part's id, tag every part_photos row
+            # with this tenant_id (so the tenant-scoped photo routes match it),
+            # and give the same honest skipped-file summary. This photo block is
+            # the only new behaviour in parts_add() — nothing else changed.
+            tenant_id = g.tenant['id']
+            part_id = result['id']
+            files = request.files.getlist('photos')
+            files = [f for f in files if f and f.filename]  # drop empty file inputs
+
+            if files:
+                if len(files) > MAX_PHOTOS_PER_UPLOAD:
+                    flash(f'⚠️ Only the first {MAX_PHOTOS_PER_UPLOAD} photos were used — max per upload', 'warning')
+                    files = files[:MAX_PHOTOS_PER_UPLOAD]
+
+                db = get_db()
+                uploaded_count = 0
+                skipped = []  # (filename, reason) — so the flash can explain what got skipped and why
+                photo_order = 0
+
+                for file in files:
+                    if not _allowed_file(file.filename):
+                        skipped.append((file.filename, 'unsupported file type'))
+                        continue
+
+                    file.seek(0, os.SEEK_END)
+                    size = file.tell()
+                    file.seek(0)
+                    if size > MAX_PHOTO_SIZE_BYTES:
+                        skipped.append((file.filename, 'over 5MB'))
+                        continue
+
+                    try:
+                        img = Image.open(file)
+                        img.load()
+                    except Exception as e:
+                        print(f"⚠️ Failed to decode '{file.filename}': {type(e).__name__}: {e}", flush=True)
+                        skipped.append((file.filename, 'not a valid image'))
+                        continue
+
+                    if img.mode != 'RGB':
+                        img = img.convert('RGB')
+
+                    if img.width > MAX_PHOTO_DIMENSION or img.height > MAX_PHOTO_DIMENSION:
+                        img.thumbnail((MAX_PHOTO_DIMENSION, MAX_PHOTO_DIMENSION), Image.LANCZOS)
+
+                    filename = f"part_{part_id}_{uuid.uuid4().hex}.jpg"
+                    filepath = os.path.join(UPLOAD_DIR, filename)
+                    img.save(filepath, format='JPEG', quality=85)
+
+                    photo_order += 1
+                    web_url = f'/uploads/parts/{filename}'
+                    db.execute(
+                        'INSERT INTO part_photos (part_id, photo_url, photo_order, tenant_id) VALUES (?, ?, ?, ?)',
+                        (part_id, web_url, photo_order, tenant_id)
+                    )
+                    uploaded_count += 1
+
+                db.commit()
+                db.close()
+
+                if uploaded_count:
+                    flash(f'✅ {uploaded_count} photo{"s" if uploaded_count != 1 else ""} uploaded', 'success')
+                if skipped:
+                    skipped_summary = ", ".join(f'{name} ({reason})' for name, reason in skipped)
+                    flash(f'⚠️ Skipped {len(skipped)} file(s): {skipped_summary}', 'warning')
+
             return redirect(url_for('parts_index'))
         else:
             flash(f'❌ Error: {result["error"]}', 'error')
