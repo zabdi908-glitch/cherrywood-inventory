@@ -4,6 +4,7 @@ import os
 import csv
 import io
 import time
+import traceback
 import re
 import unicodedata
 from datetime import datetime
@@ -163,6 +164,11 @@ class PartsAgent:
             conn.close()
             return {'success': True, 'id': part_id}
         except Exception as e:
+            # Log the real traceback so a recurrence (e.g. "database is locked")
+            # shows the exact failing line in the Render logs, instead of only
+            # the stringified message surfaced to the user via the return dict.
+            print(f"❌ [PARTS] add_part failed: {type(e).__name__}: {e}", flush=True)
+            print(traceback.format_exc(), flush=True)
             return {'success': False, 'error': str(e)}
 
     def get_part(self, part_id, tenant_id=None):

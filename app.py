@@ -11,6 +11,7 @@ from enquiries_store import enquiries_store
 import sqlite3
 import os
 import json
+import traceback
 from functools import wraps
 from datetime import datetime
 from parts_agent import parts_agent
@@ -827,12 +828,15 @@ def run_opportunistic_maintenance():
             backup.maybe_backup(db, DATABASE)
         except Exception as e:
             print(f"❌ [MAINTENANCE] Backup check failed: {e}", flush=True)
+            print(traceback.format_exc(), flush=True)
         try:
             data_retention.maybe_purge(db)
         except Exception as e:
             print(f"❌ [MAINTENANCE] Retention purge check failed: {e}", flush=True)
+            print(traceback.format_exc(), flush=True)
     except Exception as e:
         print(f"❌ [MAINTENANCE] before_request setup failed: {e}", flush=True)
+        print(traceback.format_exc(), flush=True)
     finally:
         if db:
             db.close()
