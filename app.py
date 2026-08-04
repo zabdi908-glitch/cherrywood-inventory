@@ -2184,9 +2184,15 @@ def proxy_chat():
         chat_store.init_chat_tables(db)
         rate_limiter.init_rate_limit_table(db)
         monitoring.init_alert_table(db)
-        data_retention.maybe_purge(db)
+        # DISABLED per Phase A1 — data_retention.maybe_purge() and backup.maybe_backup()
+        # were causing DB locks mid-request. The before_request hook was disabled, but
+        # these same calls inside proxy_chat() were missed. They execute writes (DELETEs,
+        # SELECTs) while holding the DB connection, then the connection stays open for
+        # the entire 20-second OpenAI API call. With concurrent gunicorn workers, any
+        # other request that touches the same tables blocks until the lock is released.
+        # data_retention.maybe_purge(db)
         analytics.init_analytics_table(db)
-        backup.maybe_backup(db, DATABASE)
+        # backup.maybe_backup(db, DATABASE)
         tenant_staff_email = settings_store.get_setting('staff_email', g.tenant['id'])
 
         client_ip = rate_limiter.get_client_ip(request)
