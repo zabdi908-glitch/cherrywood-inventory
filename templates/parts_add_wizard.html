@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Part — Simple Wizard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Big, accessible inputs for older staff */
+        .wizard-input {
+            font-size: 1.25rem;
+            padding: 1rem 1.25rem;
+            min-height: 3.5rem;
+        }
+        .wizard-label {
+            font-size: 1.125rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+        .wizard-btn {
+            font-size: 1.25rem;
+            padding: 1rem 2rem;
+            min-height: 3.5rem;
+            font-weight: 800;
+        }
+        .wizard-section {
+            border: 2px solid #334155;
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            background: #111827;
+        }
+        .wizard-section-title {
+            font-size: 1.5rem;
+            font-weight: 900;
+            color: #f97316;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        /* Photo drop zone */
+        .drop-zone {
+            border: 3px dashed #475569;
+            border-radius: 1rem;
+            padding: 2rem;
+            text-align: center;
+            transition: all 0.2s;
+            cursor: pointer;
+        }
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: #f97316;
+            background: rgba(249, 115, 22, 0.05);
+        }
+        /* Big camera button for older staff */
+        .camera-btn {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            border: 3px solid #475569;
+            border-radius: 1rem;
+            padding: 2rem;
+            background: #0f172a;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 1.25rem;
+            font-weight: 800;
+            color: #f97316;
+        }
+        .camera-btn:hover {
+            border-color: #f97316;
+            background: rgba(249, 115, 22, 0.05);
+        }
+        /* Big status buttons */
+        .status-btn {
+            font-size: 1.125rem;
+            padding: 1rem;
+            font-weight: 800;
+            border-radius: 0.75rem;
+            border: 3px solid transparent;
+            transition: all 0.15s;
+            flex: 1;
+        }
+        .status-btn:hover {
+            transform: translateY(-2px);
+        }
+        .status-btn.selected {
+            border-color: #f97316;
+            box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.2);
+        }
+    </style>
+</head>
+<body class="bg-[#0f172a] text-white min-h-screen">
+
+    <nav class="bg-[#111827] border-b border-slate-800 p-4">
+        <div class="max-w-4xl mx-auto flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <i class="fa-solid fa-wand-magic-sparkles text-3xl text-[#f97316]"></i>
+                <h1 class="text-2xl font-black text-white">Add Part — Simple Wizard</h1>
+            </div>
+            <a href="/parts" class="text-slate-400 hover:text-white text-lg font-bold transition">← Back to Parts</a>
+        </div>
+    </nav>
+
+    <div class="max-w-4xl mx-auto px-4 py-8">
+
+        <!-- Flash Messages -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="mb-6 p-4 rounded-lg text-lg font-bold {% if category == 'error' %}bg-red-600/20 text-red-400 border border-red-600/30{% else %}bg-green-600/20 text-green-400 border border-green-600/30{% endif %}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form action="/parts/add-wizard" method="POST" enctype="multipart/form-data" id="wizard-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <!-- === STEP 1: What is it? === -->
+            <div class="wizard-section">
+                <div class="wizard-section-title">
+                    <span class="bg-[#f97316] text-black w-10 h-10 rounded-full flex items-center justify-center text-xl">1</span>
+                    What is it?
+                </div>
+
+                <div class="mb-6">
+                    <label class="wizard-label text-slate-300">Stock ID</label>
+                    <input type="text" name="stock_id" id="stock_id" value="{{ next_stock_id or '' }}"
+                           class="wizard-input w-full bg-[#0f172a] border-2 border-slate-700 rounded-xl text-white placeholder-slate-500 focus:border-[#f97316] outline-none transition"
+                           placeholder="e.g. CH-00223" style="text-transform: uppercase;">
+                    <div id="stock_id_hint" class="mt-2 text-lg font-bold"></div>
+                    <p class="text-sm text-slate-500 mt-1">This number is pre-filled. Change it only if needed.</p>
+                </div>
+
+                <div class="mb-6">
+                    <label class="wizard-label text-slate-300">Part Name <span class="text-red-400">*</span></label>
+                    <input type="text" name="part_name" required
+                           class="wizard-input w-full bg-[#0f172a] border-2 border-slate-700 rounded-xl text-white placeholder-slate-500 focus:border-[#f97316] outline-none transition"
+                           placeholder="e.g. Front Bumper, Left Door Mirror...">
+                </div>
+
+                <div class="mb-6">
+                    <label class="wizard-label text-slate-300">Category</label>
+                    <select name="category"
+                            class="wizard-input w-full bg-[#0f172a] border-2 border-slate-700 rounded-xl text-white focus:border-[#f97316] outline-none transition">
+                        <option value="">— Select category —</option>
+                        <option value="Body">Body</option>
+                        <option value="Engine">Engine</option>
+                        <option value="Transmission">Transmission</option>
+                        <option value="Electrical">Electrical</option>
+                        <option value="Interior">Interior</option>
+                        <option value="Suspension">Suspension</option>
+                        <option value="Brakes">Brakes</option>
+                        <option value="Wheels">Wheels</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+
+                <div class="mb-2">
+                    <label class="wizard-label text-slate-300">Photos</label>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <!-- Camera button: opens phone camera directly -->
+                        <label class="camera-btn" for="camera-input">
+                            <i class="fa-solid fa-camera text-4xl text-[#f97316]"></i>
+                            <span>📸 Take Photo</span>
+                            <span class="text-sm font-normal text-slate-500">Opens your camera</span>
+                            <input type="file" accept="image/*" capture="environment" class="hidden" id="camera-input">
+                        </label>
+                        <!-- Drop zone: browse / drag existing photos -->
+                        <div class="drop-zone" id="drop-zone">
+                            <i class="fa-solid fa-cloud-arrow-up text-4xl text-slate-500 mb-3"></i>
+                            <p class="text-lg font-bold text-slate-300">Or tap here</p>
+                            <p class="text-sm text-slate-500 mt-1">Browse / drag photos</p>
+                            <input type="file" multiple accept="image/*" class="hidden" id="photo-input">
+                        </div>
+                        <!-- Hidden accumulator: all photos end up here for submission -->
+                        <input type="file" name="photos" multiple class="hidden" id="accumulator">
+                    </div>
+                    <div id="photo-preview" class="flex flex-wrap gap-3 mt-4"></div>
+                </div>
+            </div>
+
+            <!-- === STEP 2: What car is it from? === -->
+            <div class="wizard-section">
+                <div class="wizard-section-title">
+                    <span class="bg-[#f97316] text-black w-10 h-10 rounded-full flex items-center justify-center text-xl">2</span>
+                    What car is it from?
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div>
+                        <label class="wizard-label text-slate-300">Make</label>
+                        <input type="text" name="make" value="{{ prefill.make or '' }}"
+                               class="wizard-input w-full bg-[#0f172a] border-2 border-slate-700 rounded-xl text-white placeholder-slate-500 focus:border-[#f97316] outline-none transition"
+                               placeholder="e.g. BMW, Ford, VW...">
+                    </div>
+                    <div>
+                        <label class="wizard-label text-slate-300">Model</label>
+                        <input type="text" name="model" value="{{ prefill.model or '' }}"
+                               class="wizard-input w-full bg-[#0f172a] border-2 border-slate-700 rounded-xl text-white placeholder-slate-500 focus:border-[#f97316] outline-none transition"
+                               placeholder="e.g. 3 Series, Focus, Golf...">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div>
+                        <label class="wizard-label text-slate-300">Year</label>
+                        <input type="text" name="year" value="{{ prefill.year or '' }}"
+                               class="wizard-input w-full bg-[#0f172a] border-2 border-slate-700 rounded-xl text-white placeholder-slate-500 focus:border-[#f97316] outline-none transition"
+                               placeholder="e.g. 2019">
+                    </div>
+                    <div>
+                        <label class="wizard-label text-slate-300">Registration</label>
+                        <input type="text" name="registration" value="{{ prefill.registration or '' }}"
+                               class="wizard-input w-full bg-[#0f172a] border-2 border-slate-700 rounded-xl text-white placeholder-slate-500 focus:border-[#f97316] outline-none transition"
+                               placeholder="e.g. AB19 XYZ" style="text-transform: uppercase;">
+                    </div>
+                </div>
+            </div>
+
+            <!-- === STEP 3: Price & Stock === -->
+            <div class="wizard-section">
+                <div class="wizard-section-title">
+                    <span class="bg-[#f97316] text-black w-10 h-10 rounded-full flex items-center justify-center text-xl">3</span>
+                    Price & Stock
+                </div>
+
+                <div class="mb-6">
+                    <label class="wizard-label text-slate-300">Price (£)</label>
+                    <input type="number" name="price" step="0.01" min="0"
+                           class="wizard-input w-full bg-[#0f172a] border-2 border-slate-700 rounded-xl text-white placeholder-slate-500 focus:border-[#f97316] outline-none transition"
+                           placeholder="0.00">
+                </div>
+
+                <div class="mb-6">
+                    <label class="wizard-label text-slate-300">Stock Status</label>
+                    <div class="flex flex-col sm:flex-row gap-3">
+                        <button type="button" class="status-btn bg-green-600/20 text-green-400 selected" data-value="Available" onclick="selectStatus(this)">
+                            <i class="fa-solid fa-check mr-2"></i>Available
+                        </button>
+                        <button type="button" class="status-btn bg-yellow-600/20 text-yellow-400" data-value="Reserved" onclick="selectStatus(this)">
+                            <i class="fa-solid fa-clock mr-2"></i>Reserved
+                        </button>
+                        <button type="button" class="status-btn bg-red-600/20 text-red-400" data-value="Sold" onclick="selectStatus(this)">
+                            <i class="fa-solid fa-tag mr-2"></i>Sold
+                        </button>
+                    </div>
+                    <input type="hidden" name="stock_status" id="stock_status" value="Available">
+                </div>
+
+                <div class="mb-2">
+                    <label class="wizard-label text-slate-300">Location in yard</label>
+                    <input type="text" name="location"
+                           class="wizard-input w-full bg-[#0f172a] border-2 border-slate-700 rounded-xl text-white placeholder-slate-500 focus:border-[#f97316] outline-none transition"
+                           placeholder="e.g. Row C, Shelf 3">
+                </div>
+            </div>
+
+            <!-- === STEP 4: Review & Publish === -->
+            <div class="wizard-section">
+                <div class="wizard-section-title">
+                    <span class="bg-[#f97316] text-black w-10 h-10 rounded-full flex items-center justify-center text-xl">4</span>
+                    Review & Publish
+                </div>
+
+                <div class="bg-[#0f172a] rounded-xl p-6 border border-slate-700 mb-6">
+                    <p class="text-slate-400 text-lg mb-4">Check everything looks right, then hit the big orange button.</p>
+                    <div class="flex items-center gap-3 text-green-400 text-lg font-bold">
+                        <i class="fa-solid fa-circle-check"></i>
+                        <span>All required fields are filled</span>
+                    </div>
+                </div>
+
+                <button type="submit" class="wizard-btn w-full bg-[#f97316] text-black rounded-xl hover:bg-orange-500 transition shadow-lg shadow-orange-500/20">
+                    <i class="fa-solid fa-rocket mr-2"></i> Publish Part
+                </button>
+            </div>
+
+        </form>
+
+        <!-- Extra: Link to advanced form -->
+        <div class="text-center mt-8 pb-12">
+            <a href="/parts/add" class="text-slate-500 hover:text-slate-300 text-lg font-bold transition">
+                <i class="fa-solid fa-sliders mr-2"></i>Need more fields? Use Advanced Mode
+            </a>
+        </div>
+    </div>
+
+    <script>
+        // Photo handling: accumulate from camera + drop zone into one pool
+        const MAX_PHOTOS = 10;
+        const dropZone = document.getElementById('drop-zone');
+        const photoInput = document.getElementById('photo-input');
+        const cameraInput = document.getElementById('camera-input');
+        const accumulator = document.getElementById('accumulator');
+        const preview = document.getElementById('photo-preview');
+
+        // Shared pool of all selected files
+        let photoPool = new DataTransfer();
+
+        function addFilesToPool(files) {
+            const currentCount = photoPool.files.length;
+            const remaining = MAX_PHOTOS - currentCount;
+            if (remaining <= 0) {
+                alert(`Maximum ${MAX_PHOTOS} photos allowed.`);
+                return;
+            }
+            let added = 0;
+            for (let i = 0; i < Math.min(files.length, remaining); i++) {
+                photoPool.items.add(files[i]);
+                added++;
+            }
+            if (added < files.length) {
+                alert(`Only added ${added} photo(s). Maximum ${MAX_PHOTOS} photos allowed.`);
+            }
+            // Sync the hidden accumulator input so form submit sends all photos
+            accumulator.files = photoPool.files;
+            updatePreview();
+        }
+
+        // Drop zone click → browse
+        dropZone.addEventListener('click', () => photoInput.click());
+
+        // Drag & drop
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length) {
+                addFilesToPool(e.dataTransfer.files);
+            }
+        });
+
+        // Browse input
+        photoInput.addEventListener('change', () => {
+            if (photoInput.files.length) {
+                addFilesToPool(photoInput.files);
+            }
+            photoInput.value = ''; // clear so same file can be re-selected if needed
+        });
+
+        // Camera input (single photo each time, accumulates)
+        cameraInput.addEventListener('change', () => {
+            if (cameraInput.files.length) {
+                addFilesToPool(cameraInput.files);
+            }
+            cameraInput.value = ''; // clear so camera can be used again
+        });
+
+        function updatePreview() {
+            preview.innerHTML = '';
+            const files = photoPool.files;
+            for (let f of files) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const div = document.createElement('div');
+                    div.className = 'relative w-24 h-24 rounded-lg overflow-hidden border-2 border-slate-700';
+                    div.innerHTML = `<img src="${e.target.result}" class="w-full h-full object-cover">`;
+                    preview.appendChild(div);
+                };
+                reader.readAsDataURL(f);
+            }
+        }
+
+        // Stock status selector
+        function selectStatus(btn) {
+            document.querySelectorAll('.status-btn').forEach(b => b.classList.remove('selected'));
+            btn.classList.add('selected');
+            document.getElementById('stock_status').value = btn.dataset.value;
+        }
+
+        // Live stock ID availability check
+        const stockIdInput = document.getElementById('stock_id');
+        const stockIdHint = document.getElementById('stock_id_hint');
+        let stockCheckTimeout;
+
+        async function checkStockIdAvailability() {
+            const val = stockIdInput.value.trim().toUpperCase();
+            if (!val) {
+                stockIdHint.textContent = '';
+                return;
+            }
+
+            // Quick client-side format check
+            if (!/^CH-\d+$/.test(val)) {
+                stockIdHint.innerHTML = '<span class="text-yellow-400">⚠ Format must be CH-XXXXX</span>';
+                return;
+            }
+
+            try {
+                const resp = await fetch(`/api/check-stock-id?stock_id=${encodeURIComponent(val)}`);
+                const data = await resp.json();
+                if (data.available) {
+                    stockIdHint.innerHTML = `<span class="text-green-400">${data.message}</span>`;
+                } else {
+                    stockIdHint.innerHTML = `<span class="text-red-400">${data.message}</span>`;
+                }
+            } catch (e) {
+                stockIdHint.textContent = '';
+            }
+        }
+
+        stockIdInput.addEventListener('input', () => {
+            clearTimeout(stockCheckTimeout);
+            stockCheckTimeout = setTimeout(checkStockIdAvailability, 300);
+        });
+
+        // Run once on page load since the field is pre-filled
+        if (stockIdInput.value.trim()) {
+            checkStockIdAvailability();
+        }
+    </script>
+
+</body>
+</html>

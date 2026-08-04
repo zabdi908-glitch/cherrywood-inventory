@@ -1,9 +1,8 @@
 import sys
-# Log lines throughout this app use emoji prefixes...
 for _stream in (sys.stdout, sys.stderr):
     if hasattr(_stream, "reconfigure"):
         _stream.reconfigure(errors="replace")
-from flask import Flask, render_template, request, redirect, url_for,session,flash, abort, g
+from flask import Flask, render_template, request, redirect, url_for, session, flash, abort, g
 from email_reply_agent import handle_enquiry_auto_reply
 from list_tracker import SessionListTracker
 from email_templates import build_confirmation_email
@@ -41,7 +40,6 @@ import settings_store
 import tenants_store
 import tenant_users_store
 import uuid 
-from flask import send_from_directory
 from PIL import Image  # Pillow — used to genuinely verify uploads are real images
 from pillow_heif import register_heif_opener
 register_heif_opener()   
@@ -152,13 +150,14 @@ def login_required(f):
     return decorated_function
 
 def get_db():
-    conn = sqlite3.connect(DATABASE)
+    conn = sqlite3.connect(DATABASE, timeout=20)
     conn.row_factory = sqlite3.Row
     return conn
 
 def init_db():
     try:
         with sqlite3.connect(DATABASE) as conn:
+            conn.execute('PRAGMA journal_mode=WAL;')
             conn.execute('''CREATE TABLE IF NOT EXISTS vehicle (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT, make TEXT, model TEXT, year TEXT, reg TEXT,
@@ -812,34 +811,35 @@ def resolve_tenant():
 
     g.tenant = tenant
 
-@app.before_request
-def run_opportunistic_maintenance():
-    """Runs on every request. Both underlying functions are cheap no-ops
-    almost every time they're called (backup checks a timestamp and bails
-    unless a day has passed; retention purge only actually does anything
-    on ~2% of requests) — so this adds negligible overhead. Each task is
-    wrapped separately so a failure in one can never block the other, and
-    the whole thing is wrapped so a bug here can NEVER break an actual
-    page load for a customer."""
-    db = None
-    try:
-        db = get_db()
-        try:
-            backup.maybe_backup(db, DATABASE)
-        except Exception as e:
-            print(f"❌ [MAINTENANCE] Backup check failed: {e}", flush=True)
-            print(traceback.format_exc(), flush=True)
-        try:
-            data_retention.maybe_purge(db)
-        except Exception as e:
-            print(f"❌ [MAINTENANCE] Retention purge check failed: {e}", flush=True)
-            print(traceback.format_exc(), flush=True)
-    except Exception as e:
-        print(f"❌ [MAINTENANCE] before_request setup failed: {e}", flush=True)
-        print(traceback.format_exc(), flush=True)
-    finally:
-        if db:
-            db.close()
+# DISABLED per Phase A1 — opportunistic backup was causing DB locks mid-request
+# @app.before_request
+# def run_opportunistic_maintenance():
+#     """Runs on every request. Both underlying functions are cheap no-ops
+#     almost every time they're called (backup checks a timestamp and bails
+#     unless a day has passed; retention purge only actually does anything
+#     on ~2% of requests) — so this adds negligible overhead. Each task is
+#     wrapped separately so a failure in one can never block the other, and
+#     the whole thing is wrapped so a bug here can NEVER break an actual
+#     page load for a customer."""
+#     db = None
+#     try:
+#         db = get_db()
+#         try:
+#             backup.maybe_backup(db, DATABASE)
+#         except Exception as e:
+#             print(f"❌ [MAINTENANCE] Backup check failed: {e}", flush=True)
+#             print(traceback.format_exc(), flush=True)
+#         try:
+#             data_retention.maybe_purge(db)
+#         except Exception as e:
+#             print(f"❌ [MAINTENANCE] Retention purge check failed: {e}", flush=True)
+#             print(traceback.format_exc(), flush=True)
+#     except Exception as e:
+#         print(f"❌ [MAINTENANCE] before_request setup failed: {e}", flush=True)
+#         print(traceback.format_exc(), flush=True)
+#     finally:
+#         if db:
+#             db.close()
 
 
 # Add these routes to app.py, alongside your existing parts photo routes.
@@ -1191,10 +1191,16 @@ def parts_public():
 def parts_index():
     try:
         parts = parts_agent.get_all_parts(tenant_id=g.tenant['id'])
-        return render_template('parts_index.html', parts=parts)
+        prefill = {
+            'make': request.args.get('make', ''),
+            'model': request.args.get('model', ''),
+            'year': request.args.get('year', ''),
+            'registration': request.args.get('registration', ''),
+        }
+        return render_template('parts_index.html', parts=parts, prefill=prefill)
     except Exception as e:
         flash(f'Error loading parts: {e}', 'error')
-        return render_template('parts_index.html', parts=[])
+        return render_template('parts_index.html', parts=[], prefill={})
 
 # ===== Other Parts routes =====
 @app.route('/parts/search')
@@ -1332,6 +1338,139 @@ def parts_add():
             for error in errors:
                 flash(f'❌ {field.replace("_", " ").title()}: {error}', 'error')
     return render_template('parts_add.html', form=form)
+
+
+@app.route('/parts/add-wizard', methods=['GET', 'POST'])
+@login_required
+def parts_add_wizard():
+    """Simple wizard for adding parts — fewer fields, bigger UI for older staff."""
+    if request.method == 'POST':
+        data = {
+            'stock_id': request.form.get('stock_id', '').strip().upper(),
+            'part_name': request.form.get('part_name', '').strip(),
+            'category': request.form.get('category', '').strip(),
+            'part_type': '',
+            'make': request.form.get('make', '').strip(),
+            'model': request.form.get('model', '').strip(),
+            'generation': '',
+            'oem_number': '',
+            'engine_code': '',
+            'condition': 'Good',
+            'price': request.form.get('price', '0').strip(),
+            'stock_status': request.form.get('stock_status', 'Available').strip(),
+            'location': request.form.get('location', '').strip(),
+            'notes': '',
+            'registration': request.form.get('registration', '').strip().upper(),
+            'year': request.form.get('year', '').strip(),
+        }
+        result = parts_agent.add_part(data, tenant_id=g.tenant['id'])
+        if result['success']:
+            flash('✅ Part added successfully!', 'success')
+            part_id = result['id']
+            tenant_id = g.tenant['id']
+            files = request.files.getlist('photos')
+            files = [f for f in files if f and f.filename]
+
+            if files:
+                if len(files) > MAX_PHOTOS_PER_UPLOAD:
+                    flash(f'⚠️ Only the first {MAX_PHOTOS_PER_UPLOAD} photos were used — max per upload', 'warning')
+                    files = files[:MAX_PHOTOS_PER_UPLOAD]
+
+                saved_urls = []
+                skipped = []
+                for file in files:
+                    if not _allowed_file(file.filename):
+                        skipped.append((file.filename, 'unsupported file type'))
+                        continue
+                    file.seek(0, os.SEEK_END)
+                    size = file.tell()
+                    file.seek(0)
+                    if size > MAX_PHOTO_SIZE_BYTES:
+                        skipped.append((file.filename, 'over 5MB'))
+                        continue
+                    try:
+                        img = Image.open(file)
+                        img.load()
+                        if img.mode != 'RGB':
+                            img = img.convert('RGB')
+                        if img.width > MAX_PHOTO_DIMENSION or img.height > MAX_PHOTO_DIMENSION:
+                            img.thumbnail((MAX_PHOTO_DIMENSION, MAX_PHOTO_DIMENSION), Image.LANCZOS)
+                        filename = f"part_{part_id}_{uuid.uuid4().hex}.jpg"
+                        filepath = os.path.join(UPLOAD_DIR, filename)
+                        img.save(filepath, format='JPEG', quality=85)
+                    except Exception as e:
+                        print(f"⚠️ Failed to process '{file.filename}': {type(e).__name__}: {e}", flush=True)
+                        skipped.append((file.filename, 'not a valid image'))
+                        continue
+                    saved_urls.append(f'/uploads/parts/{filename}')
+
+                uploaded_count = 0
+                if saved_urls:
+                    db = get_db()
+                    try:
+                        for photo_order, web_url in enumerate(saved_urls, start=1):
+                            db.execute(
+                                'INSERT INTO part_photos (part_id, photo_url, photo_order, tenant_id) VALUES (?, ?, ?, ?)',
+                                (part_id, web_url, photo_order, tenant_id)
+                            )
+                        db.commit()
+                        uploaded_count = len(saved_urls)
+                    except Exception as e:
+                        print(f"❌ part_photos insert failed for part {part_id}: {type(e).__name__}: {e}", flush=True)
+                        try:
+                            db.rollback()
+                        except Exception:
+                            pass
+                        flash('⚠️ Part saved, but its photos could not be saved — please add them from the Edit page.', 'warning')
+                    finally:
+                        db.close()
+
+                if uploaded_count:
+                    flash(f'✅ {uploaded_count} photo{"s" if uploaded_count != 1 else ""} uploaded', 'success')
+                if skipped:
+                    skipped_summary = ", ".join(f'{name} ({reason})' for name, reason in skipped)
+                    flash(f'⚠️ Skipped {len(skipped)} file(s): {skipped_summary}', 'warning')
+
+            return redirect(url_for('parts_index', make=data.get('make', ''), model=data.get('model', ''), year=data.get('year', ''), registration=data.get('registration', '')))
+        else:
+            flash(f'❌ Error: {result["error"]}', 'error')
+            return redirect(url_for('parts_add_wizard'))
+
+    prefill = {
+        'make': request.args.get('make', ''),
+        'model': request.args.get('model', ''),
+        'year': request.args.get('year', ''),
+        'registration': request.args.get('registration', ''),
+    }
+    next_stock_id = parts_agent.next_stock_id() if hasattr(parts_agent, 'next_stock_id') else ''
+    return render_template('parts_add_wizard.html', next_stock_id=next_stock_id, prefill=prefill)
+
+@app.route('/api/check-stock-id', methods=['GET'])
+@login_required
+def api_check_stock_id():
+    """Live validation endpoint for the wizard — returns whether a stock_id
+    is available (not currently in use). Used by the JS hint in the wizard."""
+    stock_id = request.args.get('stock_id', '').strip().upper()
+    if not stock_id:
+        return jsonify({'available': False, 'message': 'Enter a stock ID'})
+
+    # Reject anything that doesn't look like our CH-XXXXX format
+    if not re.match(r'^CH-\d+$', stock_id):
+        return jsonify({'available': False, 'message': 'Format must be CH-XXXXX'})
+
+    part = parts_agent.get_part_by_slug(f"{stock_id.lower()}-99999")  # dummy, won't match
+    # Actually use a direct DB check for stock_id existence
+    try:
+        db = parts_agent.get_db()
+        existing = db.execute('SELECT id FROM parts WHERE stock_id = ?', (stock_id,)).fetchone()
+        db.close()
+    except Exception as e:
+        return jsonify({'available': False, 'message': 'Database error'})
+
+    if existing:
+        return jsonify({'available': False, 'message': '✗ Already used'})
+    else:
+        return jsonify({'available': True, 'message': '✓ Available'})
 
 # In app.py, find your parts_edit() route (the same one updated earlier
 # today for vehicle specs). Add ONE line right after fetching the part,

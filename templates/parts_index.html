@@ -35,6 +35,19 @@
             {% endif %}
         {% endwith %}
 
+        <!-- Add Another Part from Same Car -->
+        {% if prefill and (prefill.make or prefill.model or prefill.year or prefill.registration) %}
+            <div class="mb-6">
+                <a href="/parts/add-wizard?make={{ prefill.make | urlencode }}&model={{ prefill.model | urlencode }}&year={{ prefill.year | urlencode }}&registration={{ prefill.registration | urlencode }}"
+                   class="inline-flex items-center gap-2 px-6 py-3 bg-orange-600 text-white font-bold rounded-lg hover:bg-orange-500 transition shadow-lg shadow-orange-500/20">
+                    <i class="fa-solid fa-plus mr-1"></i> Add another part from same car
+                </a>
+                <span class="ml-3 text-slate-400 text-sm">
+                    {{ prefill.make }} {{ prefill.model }} {{ prefill.year }} {{ prefill.registration }}
+                </span>
+            </div>
+        {% endif %}
+
         <!-- Search & Add -->
         <div class="flex flex-col sm:flex-row justify-between gap-4 mb-6">
             <form action="/parts/search" method="GET" class="flex flex-1 gap-2">
@@ -51,8 +64,11 @@
                 {% endif %}
             </form>
             <div class="flex gap-2">
+                <a href="/parts/add-wizard" class="px-6 py-3 bg-[#f97316] text-black font-bold rounded-lg hover:bg-orange-500 transition">
+                    <i class="fa-solid fa-plus mr-2"></i> Add Part (Simple Wizard)
+                </a>
                 <a href="/parts/add" class="px-6 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition">
-                    <i class="fa-solid fa-plus mr-2"></i> Add Part
+                    <i class="fa-solid fa-sliders mr-2"></i> Advanced
                 </a>
                 <a href="/parts/bulk-import" class="px-6 py-3 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-700 transition">
                     <i class="fa-solid fa-upload mr-2"></i> Bulk Import
