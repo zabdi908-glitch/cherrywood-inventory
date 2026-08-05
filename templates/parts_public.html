@@ -141,7 +141,7 @@
                     <p class="text-xs text-slate-400">{{ part.make }} {{ part.model }} {{ part.generation or '' }}</p>
                     <p class="text-xs text-slate-400">OEM: {{ part.oem_number or 'N/A' }}</p>
                     <div class="flex items-center justify-between mt-3 pt-3 border-t border-slate-800">
-                        <span class="text-xl font-black text-[#f97316]">£{{ "%.2f"|format(part.price) }}</span>
+                        <span class="text-xl font-black text-[#f97316]">£{{ "%.2f"|format(part.price|float(0.00)) }}</span>
                         <span class="text-xs bg-slate-800 px-2 py-1 rounded">{{ part.category }}</span>
                     </div>
                     <div class="flex gap-2 mt-3">

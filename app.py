@@ -1542,6 +1542,11 @@ def parts_view(id):
     if not part:
         flash('Part not found', 'error')
         return redirect(url_for('parts_index'))
+    # Safely normalize price so templates never crash on None/string values
+    try:
+        part['price'] = float(part.get('price') or 0)
+    except (TypeError, ValueError):
+        part['price'] = 0.0
     return render_template('parts_view.html', part=part, parts_agent=parts_agent)
 
 @app.route('/part/<slug>')
@@ -1555,6 +1560,12 @@ def part_public_view(slug):
             part = None
     if not part:
         abort(404)
+
+    # Safely normalize price so templates never crash on None/string values
+    try:
+        part['price'] = float(part.get('price') or 0)
+    except (TypeError, ValueError):
+        part['price'] = 0.0
 
     similar_parts = parts_agent.get_similar_parts(part['id'], part['category'], tenant_id=g.tenant['id'])
     same_vehicle_parts = parts_agent.get_same_vehicle_parts(

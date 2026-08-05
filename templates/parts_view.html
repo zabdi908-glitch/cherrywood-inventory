@@ -63,7 +63,7 @@
                 <div><p class="text-xs text-slate-400">OEM / Part Number</p><p class="text-white font-bold">{{ part.oem_number or 'N/A' }}</p></div>
                 <div><p class="text-xs text-slate-400">Engine Code</p><p class="text-white font-bold">{{ part.engine_code or 'N/A' }}</p></div>
                 <div><p class="text-xs text-slate-400">Condition</p><p class="text-white font-bold">{{ part.condition }}</p></div>
-                <div><p class="text-xs text-slate-400">Price</p><p class="text-2xl font-black text-[#f97316]">£{{ "%.2f"|format(part.price) }}</p></div>
+                <div><p class="text-xs text-slate-400">Price</p><p class="text-2xl font-black text-[#f97316]">£{{ "%.2f"|format(part.price|float(0.00)) }}</p></div>
                 <div><p class="text-xs text-slate-400">Location</p><p class="text-white font-bold">{{ part.location or 'N/A' }}</p></div>
                 <div><p class="text-xs text-slate-400">Added</p><p class="text-white font-bold">{{ part.created_at[:10] }}</p></div>
             </div>

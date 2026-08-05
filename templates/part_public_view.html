@@ -292,7 +292,7 @@ Stock ID: {{ part.stock_id }}
 {%- if part.oem_number %}
 OEM: {{ part.oem_number }}
 {%- endif %}
-Price: £{{ "{:,.2f}".format(part.price) }}
+Price: £{{ "{:,.2f}".format(part.price|float(0.00)) }}
 Vehicle: {{ part.make }} {{ part.model }}{{ (" " ~ part.generation) if part.generation else "" }}
 Status: {{ part.stock_status }}
 
@@ -312,7 +312,7 @@ Stock ID: {{ part.stock_id }}
 {%- if part.oem_number %}
 OEM: {{ part.oem_number }}
 {%- endif %}
-Price: £{{ "{:,.2f}".format(part.price) }}
+Price: £{{ "{:,.2f}".format(part.price|float(0.00)) }}
 Vehicle: {{ part.make }} {{ part.model }}{{ (" " ~ part.generation) if part.generation else "" }}
 Status: {{ part.stock_status }}
 
@@ -327,7 +327,7 @@ Thank you.
 
                 <div class="mt-6">
                     <div class="flex items-center justify-between mb-4">
-                        <span class="text-3xl font-black text-[#f97316]">£{{ "%.2f"|format(part.price) }}</span>
+                        <span class="text-3xl font-black text-[#f97316]">£{{ "%.2f"|format(part.price|float(0.00)) }}</span>
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <a href="{{ tenant_settings.whatsapp_link }}?text={{ whatsapp_message.strip() | urlencode }}" target="_blank"
@@ -412,7 +412,7 @@ Thank you.
                     </div>
                     <div class="p-3">
                         <p class="text-sm font-bold text-white truncate">{{ p.part_name }}</p>
-                        <p class="text-[#f97316] font-black text-sm mt-1">£{{ "%.2f"|format(p.price) }}</p>
+                        <p class="text-[#f97316] font-black text-sm mt-1">£{{ "%.2f"|format(p.price|float(0.00)) }}</p>
                     </div>
                 </a>
                 {% endfor %}
@@ -436,7 +436,7 @@ Thank you.
                     </div>
                     <div class="p-3">
                         <p class="text-sm font-bold text-white truncate">{{ p.part_name }}</p>
-                        <p class="text-[#f97316] font-black text-sm mt-1">£{{ "%.2f"|format(p.price) }}</p>
+                        <p class="text-[#f97316] font-black text-sm mt-1">£{{ "%.2f"|format(p.price|float(0.00)) }}</p>
                     </div>
                 </a>
                 {% endfor %}
@@ -489,7 +489,7 @@ Thank you.
         <div class="flex items-center gap-3 px-4 py-3">
             <div class="flex-shrink-0">
                 <p class="text-[10px] text-slate-400 uppercase font-bold leading-none">Price</p>
-                <p class="text-lg font-black text-[#f97316] leading-tight">£{{ "%.2f"|format(part.price) }}</p>
+                <p class="text-lg font-black text-[#f97316] leading-tight">£{{ "%.2f"|format(part.price|float(0.00)) }}</p>
             </div>
             <a href="{{ tenant_settings.whatsapp_link }}?text={{ whatsapp_message.strip() | urlencode }}" target="_blank"
                class="flex-1 bg-[#22c55e] text-white font-black py-3 rounded-lg text-center text-sm flex items-center justify-center gap-2">
