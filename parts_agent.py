@@ -190,10 +190,10 @@ class PartsAgent:
                 conn.close()
 
     def next_stock_id(self, tenant_id=None):
-        """Return the next digit-only stock ID for one tenant.
+        """Return the next CH-prefixed numeric stock ID for one tenant.
 
-        Stock IDs remain free-form for manual entry. Values containing anything
-        other than digits do not participate in the automatic numeric sequence.
+        Stock IDs remain free-form for manual entry. Only values matching
+        CH-<digits> participate in the automatic numeric sequence.
         """
         if tenant_id is None:
             tenant_id = tenants_store.get_default_tenant_id()
@@ -202,22 +202,23 @@ class PartsAgent:
         try:
             conn = self.get_db()
             rows = conn.execute('SELECT stock_id, tenant_id FROM parts').fetchall()
-            numeric_ids = [
-                int(str(row['stock_id']).strip())
-                for row in rows
-                if (
-                    row['tenant_id'] == tenant_id
-                    and row['stock_id'] is not None
-                    and str(row['stock_id']).strip().isdigit()
-                )
-            ]
+            numeric_ids = []
+            for row in rows:
+                if row['tenant_id'] != tenant_id or row['stock_id'] is None:
+                    continue
+                match = re.fullmatch(r'CH-(\d+)', str(row['stock_id']))
+                if match:
+                    numeric_ids.append(int(match.group(1)))
+
             globally_used_ids = {
                 str(row['stock_id']) for row in rows if row['stock_id'] is not None
             }
             candidate = max(numeric_ids, default=0) + 1
-            while str(candidate) in globally_used_ids:
+            candidate_stock_id = f'CH-{candidate:05d}'
+            while candidate_stock_id in globally_used_ids:
                 candidate += 1
-            return str(candidate)
+                candidate_stock_id = f'CH-{candidate:05d}'
+            return candidate_stock_id
         finally:
             if conn is not None:
                 conn.close()

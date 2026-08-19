@@ -134,38 +134,38 @@ class PartsAgentTests(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_next_stock_id_returns_next_numeric_value_for_tenant(self):
+    def test_next_stock_id_increments_ch_numeric_value(self):
         conn = sqlite3.connect(self.agent.database)
         conn.executemany(
             'INSERT INTO parts (stock_id, part_name, tenant_id) VALUES (?, ?, ?)',
-            [('18', 'Older', 1), ('223', 'Newest', 1), ('900', 'Other tenant', 2)]
+            [('CH-00018', 'Older', 1), ('CH-00223', 'Newest', 1)]
         )
         conn.commit()
         conn.close()
 
-        self.assertEqual(self.agent.next_stock_id(tenant_id=1), '224')
+        self.assertEqual(self.agent.next_stock_id(tenant_id=1), 'CH-00224')
 
-    def test_next_stock_id_ignores_non_numeric_values(self):
+    def test_next_stock_id_ignores_non_ch_manual_values(self):
         conn = sqlite3.connect(self.agent.database)
         conn.executemany(
             'INSERT INTO parts (stock_id, part_name, tenant_id) VALUES (?, ?, ?)',
-            [('223', 'Numeric', 1), ('CH-99999', 'Prefixed', 1), ('MANUAL', 'Label', 1)]
+            [('CH-00223', 'Sequence', 1), ('99999', 'Manual numeric', 1), ('MANUAL', 'Manual label', 1)]
         )
         conn.commit()
         conn.close()
 
-        self.assertEqual(self.agent.next_stock_id(tenant_id=1), '224')
+        self.assertEqual(self.agent.next_stock_id(tenant_id=1), 'CH-00224')
 
     def test_next_stock_id_skips_id_used_globally(self):
         conn = sqlite3.connect(self.agent.database)
         conn.executemany(
             'INSERT INTO parts (stock_id, part_name, tenant_id) VALUES (?, ?, ?)',
-            [('223', 'Tenant sequence', 1), ('224', 'Other tenant', 2)]
+            [('CH-00223', 'Tenant sequence', 1), ('CH-00224', 'Other tenant', 2)]
         )
         conn.commit()
         conn.close()
 
-        self.assertEqual(self.agent.next_stock_id(tenant_id=1), '225')
+        self.assertEqual(self.agent.next_stock_id(tenant_id=1), 'CH-00225')
 
 
 if __name__ == '__main__':
