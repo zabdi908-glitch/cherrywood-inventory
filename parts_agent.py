@@ -132,6 +132,7 @@ class PartsAgent:
     # ============================================
 
     def add_part(self, data, tenant_id=None):
+        conn = None
         try:
             conn = self.get_db()
             # tenant_id defaults to the one pre-existing tenant when not
@@ -161,15 +162,65 @@ class PartsAgent:
             slug = self.generate_slug(data.get('part_name', ''), part_id)
             conn.execute('UPDATE parts SET slug = ? WHERE id = ?', (slug, part_id))
             conn.commit()
-            conn.close()
             return {'success': True, 'id': part_id}
+        except sqlite3.IntegrityError as e:
+            if conn is not None:
+                conn.rollback()
+
+            stock_id = data.get('stock_id')
+            if 'parts.stock_id' in str(e):
+                return {
+                    'success': False,
+                    'error': f'Stock ID {stock_id} is already in use by another part. Please choose a different stock ID.'
+                }
+
+            print(f"❌ [PARTS] add_part integrity error: {e}", flush=True)
+            return {'success': False, 'error': 'The part could not be added because some of its details are invalid.'}
         except Exception as e:
+            if conn is not None:
+                conn.rollback()
             # Log the real traceback so a recurrence (e.g. "database is locked")
             # shows the exact failing line in the Render logs, instead of only
             # the stringified message surfaced to the user via the return dict.
             print(f"❌ [PARTS] add_part failed: {type(e).__name__}: {e}", flush=True)
             print(traceback.format_exc(), flush=True)
             return {'success': False, 'error': str(e)}
+        finally:
+            if conn is not None:
+                conn.close()
+
+    def next_stock_id(self, tenant_id=None):
+        """Return the next digit-only stock ID for one tenant.
+
+        Stock IDs remain free-form for manual entry. Values containing anything
+        other than digits do not participate in the automatic numeric sequence.
+        """
+        if tenant_id is None:
+            tenant_id = tenants_store.get_default_tenant_id()
+
+        conn = None
+        try:
+            conn = self.get_db()
+            rows = conn.execute('SELECT stock_id, tenant_id FROM parts').fetchall()
+            numeric_ids = [
+                int(str(row['stock_id']).strip())
+                for row in rows
+                if (
+                    row['tenant_id'] == tenant_id
+                    and row['stock_id'] is not None
+                    and str(row['stock_id']).strip().isdigit()
+                )
+            ]
+            globally_used_ids = {
+                str(row['stock_id']) for row in rows if row['stock_id'] is not None
+            }
+            candidate = max(numeric_ids, default=0) + 1
+            while str(candidate) in globally_used_ids:
+                candidate += 1
+            return str(candidate)
+        finally:
+            if conn is not None:
+                conn.close()
 
     def get_part(self, part_id, tenant_id=None):
         if tenant_id is None:

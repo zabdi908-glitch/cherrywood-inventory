@@ -133,7 +133,7 @@
                     <label class="wizard-label text-slate-300">Stock ID</label>
                     <input type="text" name="stock_id" id="stock_id" value="{{ next_stock_id or '' }}"
                            class="wizard-input w-full bg-[#0f172a] border-2 border-slate-700 rounded-xl text-white placeholder-slate-500 focus:border-[#f97316] outline-none transition"
-                           placeholder="e.g. CH-00223" style="text-transform: uppercase;">
+                           placeholder="e.g. 224" style="text-transform: uppercase;">
                     <div id="stock_id_hint" class="mt-2 text-lg font-bold"></div>
                     <p class="text-sm text-slate-500 mt-1">This number is pre-filled. Change it only if needed.</p>
                 </div>
@@ -388,12 +388,6 @@
             const val = stockIdInput.value.trim().toUpperCase();
             if (!val) {
                 stockIdHint.textContent = '';
-                return;
-            }
-
-            // Quick client-side format check
-            if (!/^CH-\d+$/.test(val)) {
-                stockIdHint.innerHTML = '<span class="text-yellow-400">⚠ Format must be CH-XXXXX</span>';
                 return;
             }
 

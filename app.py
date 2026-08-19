@@ -1218,6 +1218,8 @@ def parts_search():
 @login_required
 def parts_add():
     form = PartForm()
+    if request.method == 'GET':
+        form.stock_id.data = parts_agent.next_stock_id(tenant_id=g.tenant['id'])
     if form.validate_on_submit():
         data = {
             'stock_id': form.stock_id.data,
@@ -1442,7 +1444,7 @@ def parts_add_wizard():
         'year': request.args.get('year', ''),
         'registration': request.args.get('registration', ''),
     }
-    next_stock_id = parts_agent.next_stock_id() if hasattr(parts_agent, 'next_stock_id') else ''
+    next_stock_id = parts_agent.next_stock_id(tenant_id=g.tenant['id'])
     return render_template('parts_add_wizard.html', next_stock_id=next_stock_id, prefill=prefill)
 
 @app.route('/api/check-stock-id', methods=['GET'])
@@ -1454,18 +1456,18 @@ def api_check_stock_id():
     if not stock_id:
         return jsonify({'available': False, 'message': 'Enter a stock ID'})
 
-    # Reject anything that doesn't look like our CH-XXXXX format
-    if not re.match(r'^CH-\d+$', stock_id):
-        return jsonify({'available': False, 'message': 'Format must be CH-XXXXX'})
-
-    part = parts_agent.get_part_by_slug(f"{stock_id.lower()}-99999")  # dummy, won't match
-    # Actually use a direct DB check for stock_id existence
+    db = None
     try:
         db = parts_agent.get_db()
-        existing = db.execute('SELECT id FROM parts WHERE stock_id = ?', (stock_id,)).fetchone()
-        db.close()
+        existing = db.execute(
+            'SELECT id FROM parts WHERE stock_id = ?',
+            (stock_id,)
+        ).fetchone()
     except Exception as e:
         return jsonify({'available': False, 'message': 'Database error'})
+    finally:
+        if db is not None:
+            db.close()
 
     if existing:
         return jsonify({'available': False, 'message': '✗ Already used'})
