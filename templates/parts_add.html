@@ -10,7 +10,7 @@
         </h1>
         <p class="text-slate-400 text-sm mb-6">Fill in the details below to add a new part to inventory.</p>
 
-        <form method="POST" enctype="multipart/form-data" class="space-y-4">
+        <form method="POST" enctype="multipart/form-data" class="space-y-4" data-photo-upload-form>
             {{ form.csrf_token }}
             
             <!-- Flash Messages -->
@@ -105,9 +105,10 @@
                     <i class="fa-solid fa-camera text-[#f97316] mr-1"></i> Upload Photos
                     <span class="text-slate-500 font-normal lowercase">(optional — JPEG, PNG, WebP)</span>
                 </label>
-                <input type="file" name="photos" multiple accept="image/*"
+                <input type="file" name="photos" multiple accept="image/*" data-photo-upload-input
                        class="w-full p-3 bg-[#0f172a] border border-slate-700 rounded-lg text-white focus:border-[#f97316] outline-none transition file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-[#f97316] file:text-black file:font-bold hover:file:bg-orange-500">
-                <p class="text-xs text-slate-500 mt-1">You can upload multiple photos. Max 5MB each.</p>
+                <p class="text-xs text-slate-500 mt-1">You can upload multiple photos. Max 5MB each. Large photos are resized before upload.</p>
+                <p data-photo-upload-status class="text-sm font-bold mt-2" aria-live="polite" hidden></p>
             </div>
 
             <button type="submit" class="w-full p-4 bg-[#f97316] text-black font-black uppercase rounded-xl hover:bg-orange-500 transition">
@@ -116,4 +117,5 @@
         </form>
     </div>
 </div>
+<script src="{{ url_for('static', filename='js/photo_upload.js') }}"></script>
 {% endblock %}
