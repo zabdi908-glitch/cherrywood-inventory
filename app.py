@@ -14,6 +14,7 @@ import traceback
 from functools import wraps
 from datetime import datetime
 from parts_agent import parts_agent
+from part_photo_verification import photo_save_flash, save_part_photos
 from flask_wtf.csrf import CSRFProtect
 from flask import send_from_directory
 from forms import PartForm
@@ -1214,6 +1215,33 @@ def parts_search():
         flash('No parts found matching your search', 'error')
     return render_template('parts_index.html', parts=parts, search_query=query)
 
+
+def _save_and_report_new_part_photos(part_id, tenant_id):
+    result = save_part_photos(
+        files=request.files.getlist('photos'),
+        part_id=part_id,
+        tenant_id=tenant_id,
+        upload_dir=UPLOAD_DIR,
+        get_db=get_db,
+        allowed_file=_allowed_file,
+        max_files=MAX_PHOTOS_PER_UPLOAD,
+        max_bytes=MAX_PHOTO_SIZE_BYTES,
+        max_dimension=MAX_PHOTO_DIMENSION,
+    )
+
+    message, category = photo_save_flash(result)
+    flash(message, category)
+
+    if result.truncated_count:
+        flash(
+            f'⚠️ Only the first {MAX_PHOTOS_PER_UPLOAD} photos were used — max per upload',
+            'warning'
+        )
+    if result.skipped:
+        skipped_summary = ', '.join(f'{name} ({reason})' for name, reason in result.skipped)
+        flash(f'⚠️ Skipped {len(result.skipped)} file(s): {skipped_summary}', 'warning')
+
+
 @app.route('/parts/add', methods=['GET', 'POST'])
 @login_required
 def parts_add():
@@ -1239,98 +1267,7 @@ def parts_add():
         }
         result = parts_agent.add_part(data, tenant_id=g.tenant['id'])
         if result['success']:
-            flash('✅ Part added successfully!', 'success')
-
-            # Save any photos attached on the Add Part page. Reuse the new
-            # part's id and tag every part_photos row with this tenant_id (so
-            # the tenant-scoped photo routes match it). Deliberately split into
-            # two phases so the SQLite write lock is held for as short a time as
-            # possible and the connection can NEVER leak:
-            #   Phase 1 — validate + decode + resize + write each image to disk.
-            #             This is the slow, CPU/IO-heavy part, done with NO DB
-            #             connection open, so it holds no lock.
-            #   Phase 2 — open one short-lived connection, insert all the rows in
-            #             a single transaction, commit. Wrapped in try/except/
-            #             finally: an error mid-insert rolls back and the finally
-            #             still closes the connection. A leaked, write-locked
-            #             connection is exactly what triggers "database is locked"
-            #             for the next request, so closing is non-negotiable.
-            tenant_id = g.tenant['id']
-            part_id = result['id']
-            files = request.files.getlist('photos')
-            files = [f for f in files if f and f.filename]  # drop empty file inputs
-
-            if files:
-                if len(files) > MAX_PHOTOS_PER_UPLOAD:
-                    flash(f'⚠️ Only the first {MAX_PHOTOS_PER_UPLOAD} photos were used — max per upload', 'warning')
-                    files = files[:MAX_PHOTOS_PER_UPLOAD]
-
-                # ---- Phase 1: process + save images to disk (no DB held) ----
-                saved_urls = []   # web URLs of images successfully written to disk
-                skipped = []      # (filename, reason) — explained back to the user
-
-                for file in files:
-                    if not _allowed_file(file.filename):
-                        skipped.append((file.filename, 'unsupported file type'))
-                        continue
-
-                    file.seek(0, os.SEEK_END)
-                    size = file.tell()
-                    file.seek(0)
-                    if size > MAX_PHOTO_SIZE_BYTES:
-                        skipped.append((file.filename, 'over 5MB'))
-                        continue
-
-                    # One try spans the whole decode→resize→save chain, so a
-                    # single bad file is skipped rather than aborting the request
-                    # (and, since no DB connection is open here, it can't leak one).
-                    try:
-                        img = Image.open(file)
-                        img.load()
-                        if img.mode != 'RGB':
-                            img = img.convert('RGB')
-                        if img.width > MAX_PHOTO_DIMENSION or img.height > MAX_PHOTO_DIMENSION:
-                            img.thumbnail((MAX_PHOTO_DIMENSION, MAX_PHOTO_DIMENSION), Image.LANCZOS)
-                        filename = f"part_{part_id}_{uuid.uuid4().hex}.jpg"
-                        filepath = os.path.join(UPLOAD_DIR, filename)
-                        img.save(filepath, format='JPEG', quality=85)
-                    except Exception as e:
-                        print(f"⚠️ Failed to process '{file.filename}': {type(e).__name__}: {e}", flush=True)
-                        skipped.append((file.filename, 'not a valid image'))
-                        continue
-
-                    saved_urls.append(f'/uploads/parts/{filename}')
-
-                # ---- Phase 2: one short-lived write transaction for all rows ----
-                uploaded_count = 0
-                if saved_urls:
-                    db = get_db()
-                    try:
-                        for photo_order, web_url in enumerate(saved_urls, start=1):
-                            db.execute(
-                                'INSERT INTO part_photos (part_id, photo_url, photo_order, tenant_id) VALUES (?, ?, ?, ?)',
-                                (part_id, web_url, photo_order, tenant_id)
-                            )
-                        db.commit()
-                        uploaded_count = len(saved_urls)
-                    except Exception as e:
-                        # The part itself is already saved (add_part committed),
-                        # so don't 500 — roll back the photo rows and tell the
-                        # user they can add photos from the Edit page instead.
-                        print(f"❌ part_photos insert failed for part {part_id}: {type(e).__name__}: {e}", flush=True)
-                        try:
-                            db.rollback()
-                        except Exception:
-                            pass
-                        flash('⚠️ Part saved, but its photos could not be saved — please add them from the Edit page.', 'warning')
-                    finally:
-                        db.close()
-
-                if uploaded_count:
-                    flash(f'✅ {uploaded_count} photo{"s" if uploaded_count != 1 else ""} uploaded', 'success')
-                if skipped:
-                    skipped_summary = ", ".join(f'{name} ({reason})' for name, reason in skipped)
-                    flash(f'⚠️ Skipped {len(skipped)} file(s): {skipped_summary}', 'warning')
+            _save_and_report_new_part_photos(result['id'], g.tenant['id'])
 
             return redirect(url_for('parts_index'))
         else:
@@ -1367,71 +1304,7 @@ def parts_add_wizard():
         }
         result = parts_agent.add_part(data, tenant_id=g.tenant['id'])
         if result['success']:
-            flash('✅ Part added successfully!', 'success')
-            part_id = result['id']
-            tenant_id = g.tenant['id']
-            files = request.files.getlist('photos')
-            files = [f for f in files if f and f.filename]
-
-            if files:
-                if len(files) > MAX_PHOTOS_PER_UPLOAD:
-                    flash(f'⚠️ Only the first {MAX_PHOTOS_PER_UPLOAD} photos were used — max per upload', 'warning')
-                    files = files[:MAX_PHOTOS_PER_UPLOAD]
-
-                saved_urls = []
-                skipped = []
-                for file in files:
-                    if not _allowed_file(file.filename):
-                        skipped.append((file.filename, 'unsupported file type'))
-                        continue
-                    file.seek(0, os.SEEK_END)
-                    size = file.tell()
-                    file.seek(0)
-                    if size > MAX_PHOTO_SIZE_BYTES:
-                        skipped.append((file.filename, 'over 5MB'))
-                        continue
-                    try:
-                        img = Image.open(file)
-                        img.load()
-                        if img.mode != 'RGB':
-                            img = img.convert('RGB')
-                        if img.width > MAX_PHOTO_DIMENSION or img.height > MAX_PHOTO_DIMENSION:
-                            img.thumbnail((MAX_PHOTO_DIMENSION, MAX_PHOTO_DIMENSION), Image.LANCZOS)
-                        filename = f"part_{part_id}_{uuid.uuid4().hex}.jpg"
-                        filepath = os.path.join(UPLOAD_DIR, filename)
-                        img.save(filepath, format='JPEG', quality=85)
-                    except Exception as e:
-                        print(f"⚠️ Failed to process '{file.filename}': {type(e).__name__}: {e}", flush=True)
-                        skipped.append((file.filename, 'not a valid image'))
-                        continue
-                    saved_urls.append(f'/uploads/parts/{filename}')
-
-                uploaded_count = 0
-                if saved_urls:
-                    db = get_db()
-                    try:
-                        for photo_order, web_url in enumerate(saved_urls, start=1):
-                            db.execute(
-                                'INSERT INTO part_photos (part_id, photo_url, photo_order, tenant_id) VALUES (?, ?, ?, ?)',
-                                (part_id, web_url, photo_order, tenant_id)
-                            )
-                        db.commit()
-                        uploaded_count = len(saved_urls)
-                    except Exception as e:
-                        print(f"❌ part_photos insert failed for part {part_id}: {type(e).__name__}: {e}", flush=True)
-                        try:
-                            db.rollback()
-                        except Exception:
-                            pass
-                        flash('⚠️ Part saved, but its photos could not be saved — please add them from the Edit page.', 'warning')
-                    finally:
-                        db.close()
-
-                if uploaded_count:
-                    flash(f'✅ {uploaded_count} photo{"s" if uploaded_count != 1 else ""} uploaded', 'success')
-                if skipped:
-                    skipped_summary = ", ".join(f'{name} ({reason})' for name, reason in skipped)
-                    flash(f'⚠️ Skipped {len(skipped)} file(s): {skipped_summary}', 'warning')
+            _save_and_report_new_part_photos(result['id'], g.tenant['id'])
 
             return redirect(url_for('parts_index', make=data.get('make', ''), model=data.get('model', ''), year=data.get('year', ''), registration=data.get('registration', '')))
         else:
