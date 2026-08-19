@@ -47,18 +47,84 @@
         return file.size <= maxBytes;
     }
 
-    function loadImage(file) {
+    function decodedDimensions(source) {
+        const width = Number(source.naturalWidth || source.width);
+        const height = Number(source.naturalHeight || source.height);
+
+        if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+            throw new Error('The decoded image has invalid dimensions.');
+        }
+
+        return { width, height };
+    }
+
+    async function loadImageBitmap(file) {
+        // "from-image" applies the JPEG's EXIF orientation before width/height
+        // are reported, preventing portrait phone photos from being drawn sideways.
+        const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+
+        try {
+            const dimensions = decodedDimensions(bitmap);
+            return {
+                source: bitmap,
+                width: dimensions.width,
+                height: dimensions.height,
+                cleanup: () => bitmap.close()
+            };
+        } catch (error) {
+            bitmap.close();
+            throw error;
+        }
+    }
+
+    function loadImageElement(file) {
         return new Promise((resolve, reject) => {
             const objectUrl = URL.createObjectURL(file);
             const image = new Image();
 
-            image.onload = () => resolve({ image, objectUrl });
+            image.onload = () => {
+                try {
+                    const dimensions = decodedDimensions(image);
+                    resolve({
+                        source: image,
+                        width: dimensions.width,
+                        height: dimensions.height,
+                        cleanup: () => URL.revokeObjectURL(objectUrl)
+                    });
+                } catch (error) {
+                    URL.revokeObjectURL(objectUrl);
+                    reject(error);
+                }
+            };
             image.onerror = () => {
                 URL.revokeObjectURL(objectUrl);
                 reject(new Error(`The browser could not read ${file.name}.`));
             };
             image.src = objectUrl;
         });
+    }
+
+    async function decodeImage(file) {
+        let bitmapError = null;
+
+        if (typeof createImageBitmap === 'function') {
+            try {
+                return await loadImageBitmap(file);
+            } catch (error) {
+                bitmapError = error;
+            }
+        }
+
+        try {
+            // Older browsers and browser-specific JPEG decoders may not support
+            // ImageBitmap. HTMLImageElement remains an independent safe fallback.
+            return await loadImageElement(file);
+        } catch (imageError) {
+            const error = new Error(`The browser could not decode ${file.name}.`);
+            error.bitmapError = bitmapError;
+            error.imageError = imageError;
+            throw error;
+        }
     }
 
     function canvasToBlob(canvas, quality) {
@@ -78,19 +144,24 @@
         return `${base}.jpg`;
     }
 
+    function shouldKeepOriginal(originalSize, compressedSize, maxOriginalBytes) {
+        return originalSize <= maxOriginalBytes && compressedSize >= originalSize;
+    }
+
     async function compressImage(file, options) {
         const settings = options || {};
         const maxDimension = settings.maxDimension || DEFAULT_MAX_DIMENSION;
         const quality = settings.quality || DEFAULT_QUALITY;
-        const loaded = await loadImage(file);
+        const loaded = await decodeImage(file);
+        let canvas = null;
 
         try {
             const dimensions = calculateTargetDimensions(
-                loaded.image.naturalWidth,
-                loaded.image.naturalHeight,
+                loaded.width,
+                loaded.height,
                 maxDimension
             );
-            const canvas = document.createElement('canvas');
+            canvas = document.createElement('canvas');
             canvas.width = dimensions.width;
             canvas.height = dimensions.height;
 
@@ -99,13 +170,18 @@
                 throw new Error('Image resizing is not supported by this browser.');
             }
 
-            context.drawImage(loaded.image, 0, 0, dimensions.width, dimensions.height);
+            context.drawImage(loaded.source, 0, 0, dimensions.width, dimensions.height);
             const blob = await canvasToBlob(canvas, quality);
 
             // Small images are sometimes already more compact than a new JPEG.
-            // Keeping the smaller file avoids making an upload slower.
-            if (blob.size >= file.size) {
+            // Never choose an oversized original just because it is smaller than
+            // the compressed result: the server will reject that original.
+            if (shouldKeepOriginal(file.size, blob.size, MAX_ORIGINAL_FALLBACK_BYTES)) {
                 return file;
+            }
+
+            if (blob.size > MAX_ORIGINAL_FALLBACK_BYTES) {
+                throw new Error(`${file.name} could not be reduced below the 5 MB upload limit.`);
             }
 
             return new File([blob], jpegFilename(file.name), {
@@ -113,7 +189,12 @@
                 lastModified: file.lastModified
             });
         } finally {
-            URL.revokeObjectURL(loaded.objectUrl);
+            loaded.cleanup();
+            if (canvas) {
+                // Release the backing pixel buffer before decoding the next file.
+                canvas.width = 0;
+                canvas.height = 0;
+            }
         }
     }
 
@@ -311,6 +392,8 @@
         calculateTargetDimensions,
         limitFiles,
         canUseOriginalFallback,
+        decodedDimensions,
+        shouldKeepOriginal,
         compressImage,
         prepareFiles,
         bind,

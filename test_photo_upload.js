@@ -4,7 +4,9 @@ const assert = require('node:assert/strict');
 const {
     calculateTargetDimensions,
     limitFiles,
-    canUseOriginalFallback
+    canUseOriginalFallback,
+    decodedDimensions,
+    shouldKeepOriginal
 } = require('./static/js/photo_upload.js');
 
 test('large landscape photos are scaled to a 1600px maximum dimension', () => {
@@ -40,4 +42,26 @@ test('original fallback is allowed only at or below the 5 MB limit', () => {
     const fiveMegabytes = 5 * 1024 * 1024;
     assert.equal(canUseOriginalFallback({ size: fiveMegabytes }, fiveMegabytes), true);
     assert.equal(canUseOriginalFallback({ size: fiveMegabytes + 1 }, fiveMegabytes), false);
+});
+
+test('decoded dimensions support ImageBitmap and HTML image sources', () => {
+    assert.deepEqual(decodedDimensions({ width: 4032, height: 3024 }), {
+        width: 4032,
+        height: 3024
+    });
+    assert.deepEqual(decodedDimensions({ naturalWidth: 3024, naturalHeight: 4032 }), {
+        width: 3024,
+        height: 4032
+    });
+    assert.throws(
+        () => decodedDimensions({ width: 0, height: 3024 }),
+        /invalid dimensions/
+    );
+});
+
+test('an oversized original is never preferred over a compressed image', () => {
+    const fiveMegabytes = 5 * 1024 * 1024;
+    assert.equal(shouldKeepOriginal(2_000_000, 2_100_000, fiveMegabytes), true);
+    assert.equal(shouldKeepOriginal(6_000_000, 6_100_000, fiveMegabytes), false);
+    assert.equal(shouldKeepOriginal(6_000_000, 4_000_000, fiveMegabytes), false);
 });
