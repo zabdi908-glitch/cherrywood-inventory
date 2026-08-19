@@ -248,16 +248,19 @@
                 {% endfor %}
             </div>
 
-            <form action="/parts/upload-photo/{{ part.id }}" method="POST" enctype="multipart/form-data">
+            <form action="/parts/upload-photo/{{ part.id }}" method="POST" enctype="multipart/form-data" data-photo-upload-form>
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="flex gap-2">
-                    <input type="file" name="photos" multiple accept="image/*,.heic,.heif" class="bg-slate-800 text-slate-300 p-2 rounded border border-slate-700">
+                    <input type="file" name="photos" multiple accept="image/*,.heic,.heif" data-photo-upload-input
+                           class="bg-slate-800 text-slate-300 p-2 rounded border border-slate-700">
                     <button type="submit" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Upload</button>
                 </div>
-                <p class="text-xs text-slate-500 mt-1">JPG, PNG, WebP, or HEIC (iPhone) — max 5MB each, up to 10 at once</p>
+                <p class="text-xs text-slate-500 mt-1">JPG, PNG, WebP, or HEIC (iPhone) — up to 10 new photos. Large photos are resized before upload.</p>
+                <p data-photo-upload-status class="text-sm font-bold mt-2" aria-live="polite" hidden></p>
             </form>
         </div>
 
     </div>
 </div>
+<script src="{{ url_for('static', filename='js/photo_upload.js') }}"></script>
 {% endblock %}

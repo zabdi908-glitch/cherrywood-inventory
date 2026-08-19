@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const {
     calculateTargetDimensions,
@@ -64,4 +66,21 @@ test('an oversized original is never preferred over a compressed image', () => {
     assert.equal(shouldKeepOriginal(2_000_000, 2_100_000, fiveMegabytes), true);
     assert.equal(shouldKeepOriginal(6_000_000, 6_100_000, fiveMegabytes), false);
     assert.equal(shouldKeepOriginal(6_000_000, 4_000_000, fiveMegabytes), false);
+});
+
+test('Edit Part wires only its new-photo form to the shared uploader', () => {
+    const template = fs.readFileSync(
+        path.join(__dirname, 'templates', 'parts_edit.html'),
+        'utf8'
+    );
+    const uploadForm = template.match(
+        /<form action="\/parts\/upload-photo\/\{\{ part\.id \}\}"[\s\S]*?<\/form>/
+    );
+
+    assert.ok(uploadForm, 'Edit Part should keep its dedicated new-photo upload form');
+    assert.match(uploadForm[0], /data-photo-upload-form/);
+    assert.match(uploadForm[0], /name="photos"[^>]*data-photo-upload-input/);
+    assert.match(uploadForm[0], /data-photo-upload-status/);
+    assert.doesNotMatch(uploadForm[0], /delete-photo|reorder-photo/);
+    assert.match(template, /static', filename='js\/photo_upload\.js'/);
 });
